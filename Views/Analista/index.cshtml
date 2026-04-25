@@ -1,0 +1,86 @@
+@model List<ParcialProgramacion1.Models.SolicitudCredito>
+
+@{
+    ViewData["Title"] = "Panel de Analista";
+}
+
+<h1>Panel de Analista</h1>
+
+@if (TempData["Exito"] != null)
+{
+    <div class="alert alert-success">
+        @TempData["Exito"]
+    </div>
+}
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger">
+        @TempData["Error"]
+    </div>
+}
+
+<h4>Solicitudes pendientes</h4>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-info">
+        No hay solicitudes pendientes.
+    </div>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Cliente</th>
+                <th>Ingresos</th>
+                <th>Monto solicitado</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Aprobar</th>
+                <th>Rechazar</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var solicitud in Model)
+            {
+                <tr>
+                    <td>@solicitud.Id</td>
+                    <td>@solicitud.ClienteId</td>
+                    <td>S/ @solicitud.Cliente?.IngresosMensuales.ToString("N2")</td>
+                    <td>S/ @solicitud.MontoSolicitado.ToString("N2")</td>
+                    <td>@solicitud.FechaSolicitud.ToString("dd/MM/yyyy")</td>
+                    <td>@solicitud.Estado</td>
+
+                    <td>
+                        <form asp-action="Aprobar" method="post">
+                            <input type="hidden" name="id" value="@solicitud.Id" />
+                            <button type="submit" class="btn btn-success btn-sm">
+                                Aprobar
+                            </button>
+                        </form>
+                    </td>
+
+                    <td>
+                        <form asp-action="Rechazar" method="post">
+                            <input type="hidden" name="id" value="@solicitud.Id" />
+
+                            <div class="input-group">
+                                <input type="text"
+                                       name="motivoRechazo"
+                                       class="form-control form-control-sm"
+                                       placeholder="Motivo de rechazo" />
+
+                                <button type="submit" class="btn btn-danger btn-sm">
+                                    Rechazar
+                                </button>
+                            </div>
+                        </form>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
