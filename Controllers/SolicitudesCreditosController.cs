@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using ParcialProgramacion1.Data;
 using ParcialProgramacion1.Models;
 using ParcialProgramacion1.ViewModels;
@@ -13,23 +15,24 @@ public class SolicitudesCreditoController : Controller
 {
     private readonly ApplicationDbContext _context;
     private readonly UserManager<IdentityUser> _userManager;
+    private readonly IDistributedCache _cache;
 
     public SolicitudesCreditoController(
         ApplicationDbContext context,
-        UserManager<IdentityUser> userManager)
+        UserManager<IdentityUser> userManager,
+        IDistributedCache cache)
     {
         _context = context;
         _userManager = userManager;
+        _cache = cache;
     }
 
     public async Task<IActionResult> Index(SolicitudFiltroViewModel filtros)
     {
         var usuarioId = _userManager.GetUserId(User);
 
-        var query = _context.SolicitudesCredito
-            .Include(s => s.Cliente)
-            .Where(s => s.Cliente != null && s.Cliente.UsuarioId == usuarioId)
-            .AsQueryable();
+        if (usuarioId == null)
+            return Challenge();
 
         if (filtros.MontoMin.HasValue && filtros.MontoMin.Value < 0)
             ModelState.AddModelError("MontoMin", "El monto mínimo no puede ser negativo.");
@@ -45,27 +48,62 @@ public class SolicitudesCreditoController : Controller
             filtros.FechaInicio.Value > filtros.FechaFin.Value)
             ModelState.AddModelError("FechaFin", "La fecha de inicio no puede ser mayor que la fecha fin.");
 
+        var cacheKey = ObtenerCacheKey(usuarioId);
+
+        List<SolicitudResumenViewModel>? solicitudes;
+
+        var cacheJson = await _cache.GetStringAsync(cacheKey);
+
+        if (!string.IsNullOrEmpty(cacheJson))
+        {
+            solicitudes = JsonSerializer.Deserialize<List<SolicitudResumenViewModel>>(cacheJson);
+        }
+        else
+        {
+            solicitudes = await _context.SolicitudesCredito
+                .Include(s => s.Cliente)
+                .Where(s => s.Cliente != null && s.Cliente.UsuarioId == usuarioId)
+                .OrderByDescending(s => s.FechaSolicitud)
+                .Select(s => new SolicitudResumenViewModel
+                {
+                    Id = s.Id,
+                    MontoSolicitado = s.MontoSolicitado,
+                    FechaSolicitud = s.FechaSolicitud,
+                    Estado = s.Estado,
+                    IngresosMensuales = s.Cliente!.IngresosMensuales
+                })
+                .ToListAsync();
+
+            await _cache.SetStringAsync(
+                cacheKey,
+                JsonSerializer.Serialize(solicitudes),
+                new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60)
+                });
+        }
+
+        solicitudes ??= new List<SolicitudResumenViewModel>();
+
         if (ModelState.IsValid)
         {
             if (filtros.Estado.HasValue)
-                query = query.Where(s => s.Estado == filtros.Estado.Value);
+                solicitudes = solicitudes.Where(s => s.Estado == filtros.Estado.Value).ToList();
 
             if (filtros.MontoMin.HasValue)
-                query = query.Where(s => s.MontoSolicitado >= filtros.MontoMin.Value);
+                solicitudes = solicitudes.Where(s => s.MontoSolicitado >= filtros.MontoMin.Value).ToList();
 
             if (filtros.MontoMax.HasValue)
-                query = query.Where(s => s.MontoSolicitado <= filtros.MontoMax.Value);
+                solicitudes = solicitudes.Where(s => s.MontoSolicitado <= filtros.MontoMax.Value).ToList();
 
             if (filtros.FechaInicio.HasValue)
-                query = query.Where(s => s.FechaSolicitud.Date >= filtros.FechaInicio.Value.Date);
+                solicitudes = solicitudes.Where(s => s.FechaSolicitud.Date >= filtros.FechaInicio.Value.Date).ToList();
 
             if (filtros.FechaFin.HasValue)
-                query = query.Where(s => s.FechaSolicitud.Date <= filtros.FechaFin.Value.Date);
+                solicitudes = solicitudes.Where(s => s.FechaSolicitud.Date <= filtros.FechaFin.Value.Date).ToList();
         }
 
-        filtros.Solicitudes = await query
-            .OrderByDescending(s => s.FechaSolicitud)
-            .ToListAsync();
+        filtros.Solicitudes = solicitudes;
 
         return View(filtros);
     }
@@ -128,6 +166,8 @@ public class SolicitudesCreditoController : Controller
         _context.SolicitudesCredito.Add(solicitud);
         await _context.SaveChangesAsync();
 
+        await InvalidarCacheUsuario(usuarioId);
+
         TempData["Exito"] = "Solicitud registrada correctamente en estado Pendiente.";
 
         return RedirectToAction(nameof(Create));
@@ -136,6 +176,9 @@ public class SolicitudesCreditoController : Controller
     public async Task<IActionResult> Details(int id)
     {
         var usuarioId = _userManager.GetUserId(User);
+
+        if (usuarioId == null)
+            return Challenge();
 
         var solicitud = await _context.SolicitudesCredito
             .Include(s => s.Cliente)
@@ -147,6 +190,19 @@ public class SolicitudesCreditoController : Controller
         if (solicitud == null)
             return NotFound();
 
+        HttpContext.Session.SetInt32("UltimaSolicitudId", solicitud.Id);
+        HttpContext.Session.SetString("UltimaSolicitudMonto", solicitud.MontoSolicitado.ToString("N2"));
+
         return View(solicitud);
+    }
+
+    private string ObtenerCacheKey(string usuarioId)
+    {
+        return $"solicitudes_usuario_{usuarioId}";
+    }
+
+    private async Task InvalidarCacheUsuario(string usuarioId)
+    {
+        await _cache.RemoveAsync(ObtenerCacheKey(usuarioId));
     }
 }
