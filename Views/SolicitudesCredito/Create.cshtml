@@ -1,0 +1,43 @@
+@model ParcialProgramacion1.ViewModels.RegistroSolicitudViewModel
+
+@{
+    ViewData["Title"] = "Registrar solicitud";
+}
+
+<h1>Registrar solicitud de crédito</h1>
+
+@if (TempData["Exito"] != null)
+{
+    <div class="alert alert-success">
+        @TempData["Exito"]
+    </div>
+}
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <div class="alert alert-danger">
+        Revise los errores del formulario.
+    </div>
+}
+
+<form asp-action="Create" method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+
+    <div class="mb-3">
+        <label asp-for="MontoSolicitado" class="form-label">Monto solicitado</label>
+        <input asp-for="MontoSolicitado" class="form-control" type="number" step="0.01" />
+        <span asp-validation-for="MontoSolicitado" class="text-danger"></span>
+    </div>
+
+    <button type="submit" class="btn btn-primary">
+        Registrar solicitud
+    </button>
+
+    <a asp-action="Index" class="btn btn-secondary">
+        Volver
+    </a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
