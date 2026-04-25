@@ -12,5 +12,5 @@ public class SolicitudFiltroViewModel
     public DateTime? FechaInicio { get; set; }
     public DateTime? FechaFin { get; set; }
 
-    public List<SolicitudCredito> Solicitudes { get; set; } = new();
+    public List<SolicitudResumenViewModel> Solicitudes { get; set; } = new();
 }
